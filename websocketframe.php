@@ -8,7 +8,10 @@ class WebSocketFrame
     }
 
     <<__Native>>
-    public function getPayload() : mixed;
+    public function getPayload() : string;
+
+    <<__Native>>
+    public function getOpcode() : int;
 
     <<__Native>>
     public static function parseFromString(string $bytes) : mixed;

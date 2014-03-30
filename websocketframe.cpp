@@ -33,9 +33,13 @@ class WebSocketFrame{
  public:
   WebSocketFrame() :
     m_mutable(true), m_fin(true),
-    m_rsv1(false), m_rsv2(false), m_rsv3(false), m_mask(false),
-    m_opcode(0){
-    fprintf(stderr, "HELO\n");
+    m_rsv1(false), m_rsv2(false), m_rsv3(false), m_mask(false){
+
+    memset(m_mask_key, 0, 4);
+    m_opcode = 0;
+    m_payload = NULL;
+    m_payload_length = 0;
+
   };
 
   ~WebSocketFrame();
@@ -47,9 +51,12 @@ class WebSocketFrame{
 
   void ParseFromString(const String &data);
 
-  String GetPayload()
-  {
+  String GetPayload() {
     return String(reinterpret_cast<char *>(m_payload), CopyString);
+  }
+
+  int64_t GetOpcode() {
+    return static_cast<int64_t>(m_opcode);
   }
 
   static Class* c_WebSocketFrame;
@@ -66,6 +73,9 @@ class WebSocketFrame{
 };
 
 WebSocketFrame::~WebSocketFrame() {
+  if (m_payload_length > 0) {
+    free(m_payload);
+  }
 }
 
 void WebSocketFrame::ParseFromString(const String &data) {
@@ -137,6 +147,12 @@ static Variant HHVM_METHOD(websocketframe, getPayload) {
   return frame->GetPayload();
 }
 
+static int64_t HHVM_METHOD(websocketframe, getOpcode) {
+  WebSocketFrame* frame = Native::data<WebSocketFrame>(this_.get());
+
+  return frame->GetOpcode();
+}
+
 static Variant HHVM_STATIC_METHOD(websocketframe, parseFromString, const String& bytes) {
   if (!WebSocketFrame::c_WebSocketFrame) {
     WebSocketFrame::c_WebSocketFrame = Unit::lookupClass(s_WebSocketFrame.get());
@@ -151,6 +167,22 @@ static Variant HHVM_STATIC_METHOD(websocketframe, parseFromString, const String&
 }
 
 namespace {
+
+enum OpcodeVariant {
+  OP_CONTENUATION = 0x00,
+  OP_TEXT = 0x01,
+  OP_BINARY = 0x02,
+  OP_PING = 0x08,
+  OP_PONG = 0x09
+};
+
+const StaticString
+  s_WebSocketFrame_OP_CONTENUATION("OP_CONTENUATION"),
+  s_WebSocketFrame_OP_TEXT("OP_TEXT"),
+  s_WebSocketFrame_OP_BINARY("OP_BINARY"),
+  s_WebSocketFrame_OP_PING("OP_PING"),
+  s_WebSocketFrame_OP_PONG("OP_PONG");
+
 static class WebSocketFrameExtension : public Extension {
 
 public:
@@ -158,7 +190,14 @@ public:
 
   virtual void moduleInit() {
     HHVM_ME(websocketframe, getPayload);
+    HHVM_ME(websocketframe, getOpcode);
     HHVM_STATIC_ME(websocketframe, parseFromString);
+
+    Native::registerClassConstant<KindOfInt64>(s_WebSocketFrame.get(), s_WebSocketFrame_OP_CONTENUATION.get(), OP_CONTENUATION);
+    Native::registerClassConstant<KindOfInt64>(s_WebSocketFrame.get(), s_WebSocketFrame_OP_TEXT.get(), OP_TEXT);
+    Native::registerClassConstant<KindOfInt64>(s_WebSocketFrame.get(), s_WebSocketFrame_OP_BINARY.get(), OP_BINARY);
+    Native::registerClassConstant<KindOfInt64>(s_WebSocketFrame.get(), s_WebSocketFrame_OP_PING.get(), OP_PING);
+    Native::registerClassConstant<KindOfInt64>(s_WebSocketFrame.get(), s_WebSocketFrame_OP_PONG.get(), OP_PONG);
 
     Native::registerNativeDataInfo<WebSocketFrame>(s_WebSocketFrame.get());
     loadSystemlib();
