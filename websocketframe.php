@@ -8,6 +8,12 @@ class WebSocketFrame
     }
 
     <<__Native>>
+    public function serializeToString() : string;
+
+    <<__Native>>
+    public function setPayload(string $payload) : void;
+
+    <<__Native>>
     public function getPayload() : string;
 
     <<__Native>>

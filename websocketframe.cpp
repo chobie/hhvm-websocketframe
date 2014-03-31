@@ -50,6 +50,19 @@ class WebSocketFrame{
   }
 
   void ParseFromString(const String &data);
+  String SerializeToString();
+
+  void SetPayload(const String& payload) {
+    if (m_mutable) {
+      if (m_payload_length > 0) {
+        free(m_payload);
+      }
+
+      m_payload = static_cast<unsigned char*>(malloc(sizeof(payload.length())));
+      memcpy(static_cast<void*>(m_payload), payload.c_str(), payload.length());
+      m_payload_length = payload.length();
+    }
+  }
 
   String GetPayload() {
     return String(reinterpret_cast<char *>(m_payload), CopyString);
@@ -76,6 +89,101 @@ WebSocketFrame::~WebSocketFrame() {
   if (m_payload_length > 0) {
     free(m_payload);
   }
+}
+
+String WebSocketFrame::SerializeToString() {
+  unsigned char *buffer;
+  size_t frame_size = 2, offset = 2;
+
+  if (m_payload_length == 0) {
+    //zend_throw_exception_ex(spl_ce_LogicException, 0 TSRMLS_CC, "empty payload");
+    return String("");
+  }
+
+  if (m_mask) {
+    frame_size += 4;
+  }
+
+  if (m_payload_length >= 0x7e && m_payload_length <= 0x10000) {
+    frame_size += 2;
+  } else if (m_payload_length >= 0x10000) {
+    frame_size += 8;
+  }
+
+  frame_size += m_payload_length;
+  buffer = static_cast<unsigned char*>(malloc(sizeof(unsigned char) * frame_size + 1));
+  memset(buffer, 0, frame_size + 1);
+
+  buffer[0] = 0;
+  if (m_fin) {
+    buffer[0] |= 0x80;
+  }
+  if (m_rsv1) {
+    buffer[0] |= 0x10;
+  }
+  if (m_rsv2) {
+    buffer[0] |= 0x20;
+  }
+  if (m_rsv3) {
+    buffer[0] |= 0x40;
+  }
+  // type
+  buffer[0] |= m_opcode;
+  buffer[1] = 0;
+
+  if (m_payload_length < 0x7e) {
+    buffer[1] |= m_payload_length;
+  } else if (m_payload_length < 0x10000) {
+    union {
+      uint16_t length;
+      uint8_t buffer[2];
+    } u;
+
+#ifdef WEBSOCKETFRAME_LITTLE_ENDIAN
+    u.length = m_payload_length;
+    u.length = (u.length >> 8) | (u.length << 8);
+#else
+    u.length = m_payload_length;
+#endif
+
+    buffer[1] |= 0x7e;
+
+    memcpy(&buffer[offset], u.buffer, 2);
+    offset += 2;
+  } else {
+    union {
+      uint64_t length;
+      uint8_t buffer[8];
+    } u;
+
+#ifdef WEBSOCKETFRAME_LITTLE_ENDIAN
+    u.length = m_payload_length;
+    u.length = (u.length >> 56) |
+        ((u.length<<40) & 0x00FF000000000000) |
+        ((u.length<<24) & 0x0000FF0000000000) |
+        ((u.length<<8) & 0x000000FF00000000) |
+        ((u.length>>8) & 0x00000000FF000000) |
+        ((u.length>>24) & 0x0000000000FF0000) |
+        ((u.length>>40) & 0x000000000000FF00) |
+        (u.length << 56);
+#else
+    u.length = m_payload_length;
+#endif
+
+    buffer[1] |= 0x7f;
+    memcpy(&buffer[offset], &u.length, 8);
+    offset += 8;
+  }
+
+  if (m_mask) {
+    // TODO: implement MASK DATA
+  }
+
+  memcpy(&buffer[offset], m_payload, m_payload_length);
+
+  String result = String(const_cast<const char*>(reinterpret_cast<char*>(buffer)), frame_size, CopyString);
+  free(buffer);
+  return result;
 }
 
 void WebSocketFrame::ParseFromString(const String &data) {
@@ -141,6 +249,13 @@ Class* WebSocketFrame::c_WebSocketFrame = nullptr;
 
 ////
 
+static void HHVM_METHOD(websocketframe, setPayload, const String& payload) {
+  WebSocketFrame* frame = Native::data<WebSocketFrame>(this_.get());
+
+  frame->SetPayload(payload);
+}
+
+
 static Variant HHVM_METHOD(websocketframe, getPayload) {
   WebSocketFrame* frame = Native::data<WebSocketFrame>(this_.get());
 
@@ -151,6 +266,12 @@ static int64_t HHVM_METHOD(websocketframe, getOpcode) {
   WebSocketFrame* frame = Native::data<WebSocketFrame>(this_.get());
 
   return frame->GetOpcode();
+}
+
+static String HHVM_METHOD(websocketframe, serializeToString) {
+   WebSocketFrame* frame = Native::data<WebSocketFrame>(this_.get());
+
+   return frame->SerializeToString();
 }
 
 static Variant HHVM_STATIC_METHOD(websocketframe, parseFromString, const String& bytes) {
@@ -189,8 +310,10 @@ public:
   WebSocketFrameExtension() : Extension("websocketframe") {}
 
   virtual void moduleInit() {
+    HHVM_ME(websocketframe, setPayload);
     HHVM_ME(websocketframe, getPayload);
     HHVM_ME(websocketframe, getOpcode);
+    HHVM_ME(websocketframe, serializeToString);
     HHVM_STATIC_ME(websocketframe, parseFromString);
 
     Native::registerClassConstant<KindOfInt64>(s_WebSocketFrame.get(), s_WebSocketFrame_OP_CONTENUATION.get(), OP_CONTENUATION);
