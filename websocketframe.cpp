@@ -36,7 +36,7 @@ class WebSocketFrame{
     m_rsv1(false), m_rsv2(false), m_rsv3(false), m_mask(false){
 
     memset(m_mask_key, 0, 4);
-    m_opcode = 0;
+    m_opcode = 1;
     m_payload = NULL;
     m_payload_length = 0;
 
@@ -229,8 +229,10 @@ void WebSocketFrame::ParseFromString(const String &data) {
       offset += 8;
     }
 
-    memcpy(reinterpret_cast<void*>(m_mask_key), &bytes[offset], 4);
-    offset += 4;
+    if (m_mask) {
+      memcpy(reinterpret_cast<void*>(m_mask_key), &bytes[offset], 4);
+      offset += 4;
+    }
     m_payload = static_cast<unsigned char*>(calloc(1, sizeof(unsigned char) * m_payload_length));
     memcpy(m_payload, &bytes[offset], m_payload_length);
 
